@@ -9,12 +9,11 @@ from scipy.io.wavfile import write
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
+import random
 
 #globals
 fs = 44100  # Sample rate
 ch = 1 #number of channels
-chunksPS=50 #number of chunks per second
-chunkSize=int(fs/chunksPS) #number of values per chunk (882)
 
 def recordWav(time, fileName):
  myrecording = sd.rec(int(time * fs), samplerate=fs, channels=ch)
@@ -37,70 +36,76 @@ def playWav(data):
 
 class dataGenerator(keras.utils.Sequence):
  def __init__(self, fileName):
-  temp=readWavFile(fileName)
-  self.numChunks=int(temp.shape[0]/chunkSize)
-  self.numSeconds=int(temp.shape[0]/fs)
-  self.data = np.reshape(temp, [self.numChunks, chunkSize]) #break it up into chunks
+  self.data = readWavFile(fileName)
+  self.size=self.data.shape[0]
 
  def __len__(self):
-  #return 1
-  return chunksPS #one batch for each chunk offset within a second, 50 chunks/sec so 50 batches each with offset i
+  return 10
 
  def __getitem__(self, index):
-  i=index
-  x = np.reshape(self.data[i:i+((self.numSeconds-1)*chunksPS)],[self.numSeconds-1, chunksPS, chunkSize])
-  y = np.reshape(self.data[i+chunksPS::chunksPS],[self.numSeconds-1, chunkSize])
+  i=random.randint(0,self.size-100)
+  x = np.reshape(self.data[i:i+100],[1,100,1])
+  y = np.array([self.data[i+100]])   #np.reshape(self.data[i+100],[1,1,1])
   return x, y
 
 
 def makeModel(dnnSize, lstmSize, learningRate):
  model = keras.Sequential()
- model.add(keras.layers.Dense(dnnSize, activation='tanh', input_shape=(chunksPS,chunkSize))) #dnn to reduce every chunk to important features like cnn
- model.add(keras.layers.LSTM(lstmSize, input_shape=(chunksPS, chunkSize), activation='tanh', recurrent_activation='tanh'))
- model.add(keras.layers.Dense(chunkSize, activation='tanh')) #dnn to resize output chunk to 882
+ model.add(keras.layers.LSTM(lstmSize, input_shape=(100,1), activation='tanh', recurrent_activation='tanh'))
+ model.add(keras.layers.Dense(dnnSize, activation='tanh'))
+ model.add(keras.layers.Dense(1, activation='tanh'))
  model.compile(optimizer=keras.optimizers.Adam(learning_rate=learningRate),loss='MAE')
  print(model.summary())
  return model
 
 
-
 def main():
  train=dataGenerator("train.wav")
  x,y=train.__getitem__(4)
- print(x.shape)
- print(y.shape)
  val=dataGenerator("validate.wav")
  test=readWavFile("test.wav")
  
- model=makeModel(256, 128, 0.001)
- model.fit(train, validation_data=val, epochs=1)
+ #model=makeModel(64, 64, 1e-5)
+ #model.fit(train, validation_data=val, epochs=100)
+ #exit()
 
- test=np.reshape(test, [1500,882])
- for i in range(1500):
-  inp=np.array([test[-50:]])
-  predict=model.predict(inp, verbose=0)
-  print(predict)
-  test=np.concatenate((test,predict), axis=0)
- test=np.reshape(test,[3000*882])
- playWav(test)
- exit()
  
-
+ '''
  bestLoss=100
  bestParams=[]
- for dnnSize in [2**i for i in range (5,9)]:
-  for lstmSize in [2**i for i in range (7,11)]:
-   for learningRate in (1e-3,1e-5,1e-7):
+ count=1
+ for dnnSize in [2**i for i in range (2,6)]:
+  for lstmSize in [2**i for i in range (2,6)]:
+   for learningRate in (1e-1,1e-2,1e-3,1e-4,1e-5):
     model=makeModel(dnnSize, lstmSize, learningRate)
-    t = model.fit(train, validation_data=val, epochs=3)
+    print(f"COUNT: {count}")
+    count+=1
+    t = model.fit(train, validation_data=val, epochs=5)
     best=min(t.history['val_loss'])
     if best<bestLoss:
      bestLoss=best
      bestParams=[dnnSize,lstmSize,learningRate]
- print(bestParams)
+ print(bestParams) #[32, 16, 0.0001]
  print(bestLoss)
+ exit()
+ '''
  
- #[256, 128, 0.001]
+ model=makeModel(512, 512, 0.0001)
+ model.fit(train, validation_data=val, epochs=30)
+ for i in range(fs):
+  inp=np.reshape((test[-100:]), [1,100,1])
+  predict=model.predict(inp, verbose=0)
+  print(predict)
+  test=np.concatenate((test,predict[0]), axis=0)
+  if (100*i)%fs==0:
+   print(str((100*i)/fs)+"%")
+ i=input("finished generating, enter filename to save and play sound!")
+ playWav(test)
+ write(i, fs, test)
+ exit()
+
+
+
 
  #    test_performance = model.evaluate(testSignGenerator)
  #    #print(test_performance)
