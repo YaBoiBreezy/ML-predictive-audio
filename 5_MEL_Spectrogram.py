@@ -31,11 +31,9 @@ def readWavFile(fileName):
  data, b = sf.read(fileName, dtype='float32')
  return data
 
-def playWav(data):
- rawData=librosa.feature.inverse.mel_to_audio(data,fs)
+def playWav(rawData):
  sd.play(rawData, fs)
  status = sd.wait()  # wait until file is done playing
-
 
 class dataGenerator(keras.utils.Sequence):
  def __init__(self, fileName):
@@ -46,6 +44,7 @@ class dataGenerator(keras.utils.Sequence):
   self.dim = self.data.shape[1] #128
 
  def __len__(self):
+  #return 1
   return self.size - nwtp - 1
 
  def __getitem__(self, i):
@@ -71,8 +70,18 @@ def main():
  test=np.transpose(librosa.feature.melspectrogram(y=readWavFile("test.wav"), sr=fs))
  print("Loaded data")
 
+ test=readWavFile("test.wav")
+ test=test[:int(test.shape[0]/6)]
+ a=librosa.griffinlim(librosa.stft(test))
+ b=librosa.feature.inverse.mel_to_audio(librosa.feature.melspectrogram(y=test,sr=fs), sr=fs)
+ c=librosa.feature.inverse.mfcc_to_audio(librosa.feature.mfcc(y=test,sr=fs), sr=fs)
+ playWav(a)
+ playWav(b)
+ playWav(c)
+ exit()
 
 
+ '''
  bestLoss=100
  bestParams=[]
  count=1
@@ -90,21 +99,26 @@ def main():
      bestParams=[cnnSize,lstmSize,learningRate,np.argmin(t.history['val_loss'])] #[3]=index of best, aka epoch with lowest loss
  print(bestParams)
  print(bestLoss)
-  #32, 0.001, 5+ iterations
- bestParams=[]
- model=makeModel(bestParams[0], bestParams[1], bestParams[2])
- model.fit(train, epochs=bestParams[3])
+ '''
 
- newLen=86*10  #86 timesteps/second, 10 seconds
+
+ model=makeModel(0, 128, 0.0001)
+ model.fit(train, validation_data=val, epochs=8)
+
+ newLen=86*10  #86 timesteps/second
  for i in range(newLen):
   predict=model.predict(np.array([test[-nwtp:]]), verbose=0)
-  test=np.concatenate((test,predict[0]), axis=0)
+  test=np.concatenate((test,predict), axis=0)
   if (100*i)%newLen==0:
    print(predict)
    print(str((100*i)/newLen)+"%")
  i=input("finished generating, enter filename to save and play sound!\n")
- rawTest=librosa.feature.inverse.mel_to_audio(np.transpose(test)) #uses griffin-lim, so automatically reconstructs phase to go with mel
- write(i, fs, rawTest)
- playWav(rawTest)
+ rawData=librosa.feature.inverse.mel_to_audio(np.transpose(test)) #uses griffin-lim, so automatically reconstructs phase to go with mel
+ print(rawData.shape)
+ write(i, fs, rawData)
+ playWav(rawData)
 
 main()
+
+#make super overtrained example to verify approach is feasible
+#use optimizer, 2x LSTM, variable window size/count
